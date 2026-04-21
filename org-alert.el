@@ -54,7 +54,18 @@
   :group 'org-alert
   :type 'integer)
 
+(defcustom org-alert-hook-cutoff 0
+  "Default time in minutes before a deadline a notification should be sent."
+  :group 'org-alert
+  :type 'integer)
+
 (defcustom org-alert-notify-after-event-cutoff nil
+  "Time in minutes after a deadline to stop sending notifications.
+If nil, never stop sending notifications."
+  :group 'org-alert
+  :type '(choice integer (const nil)))
+
+(defcustom org-alert-hook-after-event-cutoff 0
   "Time in minutes after a deadline to stop sending notifications.
 If nil, never stop sending notifications."
   :group 'org-alert
@@ -160,29 +171,49 @@ is less than `org-alert-notify-after-event-cutoff` past TIME."
          (> time-until (- org-alert-notify-after-event-cutoff)))
       (<= time-until cutoff))))
 
+(defun org-alert--check-hook-time (time cutoff &optional now)
+  "Check if TIME is less than CUTOFF (in minutes) from NOW. If
+`org-alert-notify-after-event-cutoff` is set, also check that NOW
+is less than `org-alert-notify-after-event-cutoff` past TIME."
+  (let* ((time (mapcar #'string-to-number (split-string time ":")))
+         (now (or now (decode-time (current-time))))
+         (now (org-alert--to-minute (decoded-time-hour now) (decoded-time-minute now)))
+         (then (org-alert--to-minute (car time) (cadr time)))
+         (time-until (- then now)))
+    (if org-alert-hook-after-event-cutoff
+        (and
+         (<= time-until cutoff)
+         ;; negative time-until past events
+         (> time-until (- org-alert-hook-after-event-cutoff)))
+      (<= time-until cutoff))))
+
 (defun org-alert--parse-entry ()
   "Parse an entry from the org agenda and return a list of the
 heading, the scheduled/deadline time, and the cutoff to apply"
   (let ((head (org-alert--strip-text-properties (org-get-heading t t t t)))
         (abody (org-entry-get nil "ALERT_BODY"))
-        (cat_head (org-entry-get nil "CATEGORY_HEAD")))
+        (cat_hide (org-entry-get nil "ALERT_CATEGORY_HIDE"))
+        (cmd (org-entry-get nil "ALERT_CMD")))
     (cl-destructuring-bind (body cutoff) (org-alert--grab-subtree)
       (when (string-match org-alert-time-match-string body)
         (when (not abody) (setq abody ""))
-        (list head (match-string 1 body) abody (org-get-category) cat_head cutoff))
+        (list head (match-string 1 body) abody (org-get-category) cat_hide cmd cutoff))
       )))
 
 (defun org-alert--dispatch ()
   (let ((entry (org-alert--parse-entry)))
     (when entry
-      (cl-destructuring-bind (head time body cat cat_head cutoff) entry
+      (cl-destructuring-bind (head time body cat cat_hide cmd cutoff) entry
         (if time
-            (when (org-alert--check-time time cutoff)
-              (alert body
-                     :title (if cat_head
-                                (concat time ": " head)
-                              (concat time ": " cat ": " head))
-                     :category org-alert-notification-category))
+            (progn
+              (when (org-alert--check-time time cutoff)
+                (alert body
+                       :title (if cat_hide
+                                  (concat time ": " head)
+                                (concat time ": " cat ": " head))
+                       :category org-alert-notification-category))
+              (when (and cmd (org-alert--check-time time org-alert-hook-cutoff))
+                (funcall (intern cmd))))
           (alert head :title org-alert-notification-title
                  :category org-alert-notification-category))))))
 
