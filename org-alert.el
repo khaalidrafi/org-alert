@@ -212,7 +212,7 @@ heading, the scheduled/deadline time, and the cutoff to apply"
                                   (concat time ": " head)
                                 (concat time ": " cat ": " head))
                        :category org-alert-notification-category))
-              (when (and cmd (org-alert--check-time time org-alert-hook-cutoff))
+              (when (and cmd (org-alert--check-hook-time time org-alert-hook-cutoff))
                 (funcall (intern cmd))))
           (alert head :title org-alert-notification-title
                  :category org-alert-notification-category))))))
